@@ -4,33 +4,34 @@ package aclcmds
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 
 	"github.com/visvasity/cli"
-	"github.com/visvasity/zanzibar"
 )
 
-// ConfigWrite creates or updates a namespace config from a JSON document.
+// ConfigWrite creates or updates namespace configs from a JSON or schema-DSL
+// document.
 type ConfigWrite struct {
 	flags ConfigClientFlags
 
 	file          string
+	format        string
 	expectVersion int
 }
 
 func (c *ConfigWrite) Purpose() string {
-	return "Create or update a namespace config from JSON (compare-and-set on Version)"
+	return "Create or update namespace config(s) from JSON or schema DSL (compare-and-set on Version)"
 }
 
 func (c *ConfigWrite) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := new(flag.FlagSet)
 	c.flags.SetFlags(fset)
-	fset.StringVar(&c.file, "file", "", "path to a JSON NamespaceConfig, or '-'/empty for stdin")
-	fset.IntVar(&c.expectVersion, "expect-version", -1, "expected current version for compare-and-set; -1 uses the JSON's version field")
+	fset.StringVar(&c.file, "file", "", "path to the config file, or '-'/empty for stdin")
+	fset.StringVar(&c.format, "format", "", "input format: json or dsl (default: inferred from file extension, else json)")
+	fset.IntVar(&c.expectVersion, "expect-version", -1, "expected current version for compare-and-set; -1 uses the config's version field (single-namespace only)")
 	return "write", fset, c.run
 }
 
@@ -42,23 +43,29 @@ func (c *ConfigWrite) run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	var cfg zanzibar.NamespaceConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return fmt.Errorf("could not parse config JSON: %w", err)
+	cfgs, err := decodeConfigs(data, resolveFormat(c.format, c.file))
+	if err != nil {
+		return err
 	}
 	if c.expectVersion >= 0 {
-		cfg.Version = uint64(c.expectVersion)
+		if len(cfgs) != 1 {
+			return fmt.Errorf("-expect-version requires exactly one namespace, got %d", len(cfgs))
+		}
+		cfgs[0].Version = uint64(c.expectVersion)
 	}
 
 	client, err := c.flags.Client()
 	if err != nil {
 		return err
 	}
-	stored, err := client.WriteConfig(ctx, &cfg)
-	if err != nil {
-		return err
+	out := cli.Stdout(ctx)
+	for i := range cfgs {
+		stored, err := client.WriteConfig(ctx, &cfgs[i])
+		if err != nil {
+			return fmt.Errorf("writing %q: %w", cfgs[i].Namespace, err)
+		}
+		fmt.Fprintf(out, "wrote config for %q (version=%d)\n", stored.Namespace, stored.Version)
 	}
-	fmt.Fprintf(cli.Stdout(ctx), "wrote config for %q (version=%d)\n", stored.Namespace, stored.Version)
 	return nil
 }
 
