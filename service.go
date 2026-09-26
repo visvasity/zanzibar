@@ -137,11 +137,7 @@ func (s *Service) Check(ctx context.Context, req *CheckRequest) (*CheckResponse,
 
 // Write is implemented in write.go.
 
-// Read returns stored tuples (not computed membership) matching the request's
-// filter, in deterministic key order, with cursor-based pagination.
-func (s *Service) Read(ctx context.Context, req *ReadRequest) (*ReadResponse, error) {
-	panic("not implemented")
-}
+// Read is implemented in read.go.
 
 // Expand returns the userset tree for Object#Relation without flattening it to
 // leaf users. Nodes cut off by the cycle guard or the depth limit are marked
