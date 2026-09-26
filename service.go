@@ -134,12 +134,7 @@ func WithEmailCaseFold(fold bool) Option {
 
 // Read is implemented in read.go.
 
-// Expand returns the userset tree for Object#Relation without flattening it to
-// leaf users. Nodes cut off by the cycle guard or the depth limit are marked
-// truncated.
-func (s *Service) Expand(ctx context.Context, req *ExpandRequest) (*ExpandResponse, error) {
-	panic("not implemented")
-}
+// Expand is implemented in expand.go.
 
 // ListObjects returns the objects in the request's namespace on which the
 // subject holds the relation. The result is sound and complete relative to

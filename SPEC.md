@@ -558,8 +558,15 @@ debugging and administrative introspection.
 
 - Expand **MUST** use one snapshot (§9) and **MUST** apply the same cycle and
   depth limits as Check (§6.4); a node cut off by a cycle or the depth limit
-  **MUST** be marked as such in the returned tree rather than omitted silently.
+  **MUST** be marked as such (`Truncated`) in the returned tree rather than
+  omitted silently.
 - Expand **MUST NOT** resolve `user:*` wildcards into a concrete user list.
+- `_this` leaves list the direct stored subjects verbatim; a **userset** subject
+  is listed as-is and **not** recursively expanded (a caller may Expand it
+  separately). `computed_userset` expands into the same object's target relation;
+  `tuple_to_userset` expands into one child subtree per active parent object.
+  Each relation node carries the `Object` it expands, so cross-object subtrees
+  remain identifiable. Inactive tuples at the request `AsOf` are excluded (§6.6).
 
 ### 10.2 Read
 
@@ -859,8 +866,9 @@ type ListUsersResponse struct { Users []string; NextPageToken string }
 ```
 
 `UsersetNode` is a recursive discriminated union mirroring §5.2 (a `kind`
-field plus per-kind children and, at leaves, the direct subjects), plus a
-boolean marking nodes truncated by cycle/depth limits (§10.1).
+field plus per-kind children and, at leaves, the direct subjects), an `object`
+field naming the object a relation node expands, and a boolean marking nodes
+truncated by cycle/depth limits (§10.1).
 
 ---
 

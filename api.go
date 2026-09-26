@@ -154,19 +154,30 @@ const (
 // recursive discriminated union keyed by Kind; only the fields relevant to Kind
 // are populated.
 type UsersetNode struct {
-	// Kind identifies which rewrite node this represents.
-	Kind UsersetNodeKind `json:"kind"`
+	// Kind identifies which rewrite node this represents. It is empty on a node
+	// left unexpanded by the cycle guard or depth limit (see Truncated).
+	Kind UsersetNodeKind `json:"kind,omitempty"`
 
-	// Subjects holds the direct subject strings at a NodeThis leaf.
+	// Object is the object whose relation this node expands. It is set on the
+	// relation nodes — the tree root, each NodeComputedUserset child, and each
+	// per-parent NodeTupleToUserset child — so cross-object subtrees remain
+	// identifiable. Operator sub-nodes (union/intersection/exclusion members)
+	// inherit the enclosing relation node's object.
+	Object string `json:"object,omitempty"`
+
+	// Subjects holds the direct subject strings at a NodeThis leaf. Userset
+	// subjects are listed verbatim, not recursively expanded; a "user:*" wildcard
+	// is never expanded into concrete users.
 	Subjects []string `json:"subjects,omitempty"`
 
 	// Children holds the operands of NodeUnion, NodeIntersection, and
-	// NodeExclusion (Base then Subtract), and the per-object subtrees of
-	// NodeTupleToUserset.
+	// NodeExclusion (Base then Subtract); the single expansion of the referenced
+	// relation for NodeComputedUserset; and the per-parent-object expansions for
+	// NodeTupleToUserset (each child's Object names its parent).
 	Children []UsersetNode `json:"children,omitempty"`
 
 	// Relation is the referenced relation for NodeComputedUserset and the
-	// evaluated relation for NodeTupleToUserset.
+	// evaluated (computed_userset) relation for NodeTupleToUserset.
 	Relation string `json:"relation,omitempty"`
 
 	// Tupleset is the followed relation for NodeTupleToUserset.
