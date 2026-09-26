@@ -2,7 +2,12 @@
 
 package zanzibar
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+)
 
 // ErrorCode is a stable, documented category for an [Error]. Over HTTP it is
 // surfaced as the ErrorType field of the httphelp error body.
@@ -70,11 +75,76 @@ type Error struct {
 
 // Error implements the error interface.
 func (e *Error) Error() string {
-	panic("not implemented")
+	var b strings.Builder
+	b.WriteString("zanzibar: ")
+	if e.Code != "" {
+		b.WriteString(string(e.Code))
+		b.WriteString(": ")
+	}
+	if e.Message != "" {
+		b.WriteString(e.Message)
+	} else {
+		b.WriteString("error")
+	}
+	// Append tuple context when present, for debuggability.
+	switch {
+	case e.Object != "" && e.Relation != "" && e.Subject != "":
+		fmt.Fprintf(&b, " (%s#%s@%s)", e.Object, e.Relation, e.Subject)
+	case e.Object != "" || e.Relation != "" || e.Subject != "":
+		fmt.Fprintf(&b, " (object=%q relation=%q subject=%q)", e.Object, e.Relation, e.Subject)
+	}
+	return b.String()
 }
 
-// Unwrap returns the sentinel error matching e.Code, so errors.Is(e,
-// Err...) reports the category.
+// Unwrap returns the sentinel error matching e.Code, so errors.Is(e, Err...)
+// reports the category. It returns nil for an unknown code.
 func (e *Error) Unwrap() error {
-	panic("not implemented")
+	return sentinelForCode(e.Code)
+}
+
+// sentinelForCode maps an [ErrorCode] to its package sentinel, or nil.
+func sentinelForCode(c ErrorCode) error {
+	switch c {
+	case CodeInvalidArgument:
+		return ErrInvalidArgument
+	case CodeNamespaceUnregistered:
+		return ErrNamespaceUnregistered
+	case CodeRelationUndeclared:
+		return ErrRelationUndeclared
+	case CodePreconditionFailed:
+		return ErrPreconditionFailed
+	case CodeConflict:
+		return ErrConflict
+	case CodeDepthExceeded:
+		return ErrDepthExceeded
+	case CodeUnavailable:
+		return ErrUnavailable
+	default:
+		return nil
+	}
+}
+
+// fromKV translates a low-level error returned by the kv layer into an [*Error]
+// with an appropriate category, so storage conditions never leak as allow
+// decisions (§15). It returns nil for a nil error. Callers that treat
+// os.ErrNotExist as an expected "absent" condition should test for it before
+// calling fromKV; here it is mapped to CodeUnavailable as a conservative,
+// fail-closed default.
+func fromKV(err error) error {
+	if err == nil {
+		return nil
+	}
+	// If it is already one of ours, pass it through unchanged.
+	var ze *Error
+	if errors.As(err, &ze) {
+		return err
+	}
+	switch {
+	case errors.Is(err, os.ErrInvalid):
+		return &Error{Code: CodeInvalidArgument, Message: err.Error()}
+	case errors.Is(err, os.ErrClosed):
+		return &Error{Code: CodeUnavailable, Message: err.Error()}
+	default:
+		return &Error{Code: CodeUnavailable, Message: err.Error()}
+	}
 }
