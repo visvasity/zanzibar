@@ -128,12 +128,7 @@ func WithEmailCaseFold(fold bool) Option {
 	}
 }
 
-// Check reports whether the request's subject is a member of the userset
-// Object#Relation. It evaluates against a single point-in-time snapshot and is
-// fail-closed: any error or exceeded depth denies rather than allows.
-func (s *Service) Check(ctx context.Context, req *CheckRequest) (*CheckResponse, error) {
-	panic("not implemented")
-}
+// Check is implemented in eval.go.
 
 // Write is implemented in write.go.
 
