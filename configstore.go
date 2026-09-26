@@ -159,6 +159,30 @@ func collectComputedTargets(rw Rewrite, set map[string]struct{}) {
 	}
 }
 
+// collectTupleToUsersets gathers every tuple_to_userset node anywhere in rw's
+// tree. Used to build the reverse index for ListObjects (§10.3).
+func collectTupleToUsersets(rw Rewrite, out *[]TupleToUserset) {
+	switch {
+	case rw.TupleToUserset != nil:
+		*out = append(*out, *rw.TupleToUserset)
+	case rw.Union != nil:
+		for _, c := range rw.Union.Children {
+			collectTupleToUsersets(c, out)
+		}
+	case rw.Intersection != nil:
+		for _, c := range rw.Intersection.Children {
+			collectTupleToUsersets(c, out)
+		}
+	case rw.Exclusion != nil:
+		if rw.Exclusion.Base != nil {
+			collectTupleToUsersets(*rw.Exclusion.Base, out)
+		}
+		if rw.Exclusion.Subtract != nil {
+			collectTupleToUsersets(*rw.Exclusion.Subtract, out)
+		}
+	}
+}
+
 // detectComputedCycle rejects configs whose computed_userset references form a
 // cycle within the same namespace (§12.5), which would not terminate under a
 // single object without the runtime cycle guard.

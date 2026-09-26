@@ -38,20 +38,32 @@ func (s *Service) Check(ctx context.Context, req *CheckRequest) (*CheckResponse,
 	}
 	defer snap.Discard(ctx)
 
-	e := &evaluator{
-		s:       s,
-		ctx:     ctx,
-		r:       snap,
-		asOf:    req.AsOfUnixNano,
-		target:  canonicalSubject(sub, s.opts.emailCaseFold),
-		configs: make(map[string]*NamespaceConfig),
-		visited: make(map[string]bool),
-	}
-	allowed, err := e.check(ns+":"+id, req.Relation)
+	allowed, err := s.evalCheck(ctx, snap, ns+":"+id, req.Relation, canonicalSubject(sub, s.opts.emailCaseFold), req.AsOfUnixNano, nil)
 	if err != nil {
 		return nil, err
 	}
 	return &CheckResponse{Allowed: allowed}, nil
+}
+
+// evalCheck evaluates a single membership question through the given reader, with
+// a fresh cycle/depth guard. The configs cache may be shared across calls that
+// use the same reader (a snapshot's config never changes); pass nil for a fresh
+// one. This is the shared core of Check and of ListObjects' candidate
+// confirmation, so both observe one snapshot (§6.1, §10.3).
+func (s *Service) evalCheck(ctx context.Context, r kv.Reader, object, relation, target string, asOf int64, configs map[string]*NamespaceConfig) (bool, error) {
+	if configs == nil {
+		configs = make(map[string]*NamespaceConfig)
+	}
+	e := &evaluator{
+		s:       s,
+		ctx:     ctx,
+		r:       r,
+		asOf:    asOf,
+		target:  target,
+		configs: configs,
+		visited: make(map[string]bool),
+	}
+	return e.check(object, relation)
 }
 
 // evaluator carries the per-Check state: the shared snapshot, the query subject,

@@ -3,8 +3,6 @@
 package zanzibar
 
 import (
-	"context"
-
 	"github.com/visvasity/kv"
 )
 
@@ -136,19 +134,7 @@ func WithEmailCaseFold(fold bool) Option {
 
 // Expand is implemented in expand.go.
 
-// ListObjects returns the objects in the request's namespace on which the
-// subject holds the relation. The result is sound and complete relative to
-// Check for the snapshot taken, subject to the depth limit, and is paginated.
-func (s *Service) ListObjects(ctx context.Context, req *ListObjectsRequest) (*ListObjectsResponse, error) {
-	panic("not implemented")
-}
-
-// ListUsers returns the user subjects that are members of Object#Relation,
-// flattening usersets and inheritance but not expanding a "user:*" wildcard.
-// The result is paginated.
-func (s *Service) ListUsers(ctx context.Context, req *ListUsersRequest) (*ListUsersResponse, error) {
-	panic("not implemented")
-}
+// ListObjects and ListUsers are implemented in list.go.
 
 // Config administration methods (WriteConfig, ReadConfig, ListConfigs,
 // ReadConfigVersion, ListConfigVersions) are implemented in configstore.go.
