@@ -60,7 +60,7 @@ implementation adds unexported files beside them.
 | `tuple.go` | exists | `Tuple`, `Mutation`, ops, preconditions, interval fields |
 | `api.go` | exists | request/response types, `UsersetNode` |
 | `service.go` | exists (stubs) | `Service`, `New`, `Option`s, method signatures |
-| `http.go` | exists (stubs) | `RegisterHandlers`, `Client`, path consts |
+| `http.go` | exists (stubs) | `Handler`/`ConfigHandler`, `Client`/`ConfigClient`, path consts |
 | `errors.go` | exists (stubs) | `ErrorCode`, sentinels, `*Error` |
 | `subject.go` | **new** | subject parsing + object/relation/email validation (§12) |
 | `keys.go` | **new** | key builders + prefix ranges for config head/history/forward/reverse (§11), incl. order-preserving version encoding |
@@ -275,10 +275,10 @@ fixture; pagination; cap behavior.
 **Goal:** the surface applications mount.
 
 **Work items**
-- `RegisterHandlers(server, prefix)`: mount each op via `httphelp.PostHandler` /
-  `PostHandler2` under `prefix` (default `HandleTLS`, §14.1); config endpoints;
-  path consts already in `http.go`.
-- `Client` methods via `httphelp.CallPostHandler`; `NewClient`.
+- `Handler()` / `ConfigHandler()` returning `http.Handler` (a ServeMux per
+  plane), each op wrapped via `httphelp.PostHandler2` in a response envelope so
+  typed errors survive the wire (§14.1/§14.3).
+- `Client` (data) and `ConfigClient` (config) via `httphelp.CallPostHandler`.
 
 **Tests:** bring up `httphelp.Server` on `127.0.0.1:0` (and/or a unix socket);
 round-trip every endpoint with `Client`; assert the httphelp error surface

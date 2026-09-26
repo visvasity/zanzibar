@@ -79,11 +79,13 @@
 //
 // # HTTP surface
 //
-// [Service.RegisterHandlers] mounts the operations onto a
-// github.com/visvasity/httphelp.Server under a caller-chosen prefix, using the
-// httphelp JSON/gob POST handler convention. The library is identity-agnostic:
-// it performs no authentication and makes no authorization decision about who
-// may call the admin surface. The embedding application MUST gate the mutating
-// endpoints (write, config/*) with its own authn/authz middleware. See
-// [Client] for the matching typed client.
+// [Service.Handler] returns the data-plane http.Handler (check, write, read,
+// expand, list-objects, list-users) and [Service.ConfigHandler] the
+// schema-administration handler; mount them wherever you like (an
+// httphelp.Server, net/http, any router), behind your own middleware. They are
+// separate so the high-privilege config plane can sit behind stricter
+// authorization. The library is identity-agnostic: it performs no authentication
+// and makes no decision about who may call the admin surface — the embedding
+// application MUST gate the mutating surface with its own authn/authz. See
+// [Client] and [ConfigClient] for the matching typed clients.
 package zanzibar

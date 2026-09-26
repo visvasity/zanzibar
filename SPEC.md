@@ -876,21 +876,33 @@ truncated by cycle/depth limits (§10.1).
 
 ### 14.1 Mounting
 
-The library exposes its operations as `http.Handler`s built with the
-`httphelp` generic RPC helpers (`httphelp.PostHandler` / `PostHandler2`), and
-registers them on a caller-provided `*httphelp.Server` under a caller-chosen
-prefix:
+The library exposes its operations as two `http.Handler` values that the host
+mounts wherever it likes (on an `httphelp.Server`, the standard library, or any
+router), so it never depends on a particular server type:
 
 ```go
-// RegisterHandlers mounts the HTTP endpoints onto server under prefix
-// (e.g. "/api/authz/"). The prefix MUST end with "/".
-func (s *Service) RegisterHandlers(server *httphelp.Server, prefix string)
+// Handler serves the data plane: check, write, read, expand, list-objects,
+// list-users (each at "/<suffix>" relative to the handler root).
+func (s *Service) Handler() http.Handler
+
+// ConfigHandler serves the schema-administration plane: write, read, list,
+// read-version, list-versions.
+func (s *Service) ConfigHandler() http.Handler
 ```
 
-`RegisterHandlers` **MUST** register on the TLS (and unix) handler set at
-minimum; whether the plaintext HTTP mux is also served is the host's choice via
-which `httphelp` `Handle`/`HandleTLS` path the library uses. The library
-**SHOULD** default to `HandleTLS` (secure endpoints only) and document it.
+The two planes are separate handlers so the host can mount them at different
+paths and behind different authorization: the config plane rewrites a
+namespace's entire authorization semantics and is high-privilege (§16). Each
+handler serves its endpoints at a leading-slash path relative to its root, so it
+is mounted with prefix stripping, for example:
+
+```go
+mux.Handle("/api/authz/", http.StripPrefix("/api/authz", svc.Handler()))
+mux.Handle("/api/authz-admin/", http.StripPrefix("/api/authz-admin", svc.ConfigHandler()))
+```
+
+The host controls exposure by where it mounts each handler, which listeners it
+serves them on, and the authn/authz middleware it wraps them with (§14.4).
 
 ### 14.2 Endpoints
 
@@ -898,21 +910,30 @@ All endpoints use `POST` with request body content-type `application/json` or
 `application/gob`, matching the `httphelp` `PostHandler` convention. The
 response is encoded in the **same** content-type as the request.
 
-| Method + Path (relative to prefix) | Request | Response |
-|-----------------------------------|---------|----------|
-| `POST check`        | `CheckRequest`       | `CheckResponse` |
-| `POST write`        | `WriteRequest`       | `WriteResponse` |
-| `POST read`         | `ReadRequest`        | `ReadResponse` |
-| `POST expand`       | `ExpandRequest`      | `ExpandResponse` |
-| `POST list-objects` | `ListObjectsRequest` | `ListObjectsResponse` |
-| `POST list-users`   | `ListUsersRequest`   | `ListUsersResponse` |
-| `POST config/write` | `NamespaceConfig` (with expected `Version`) | `NamespaceConfig` (with assigned `Version`) |
-| `POST config/read`  | `{ "namespace": ... }` | `NamespaceConfig` |
-| `POST config/list`  | `{}`                 | `{ "configs": [ ... ] }` |
-| `POST config/read-version` | `{ "namespace": ..., "version": N }` | `NamespaceConfig` |
-| `POST config/list-versions` | `{ "namespace": ... }` | `{ "versions": [ ... ] }` |
+Data plane ([Service.Handler], paths relative to its mount root):
+
+| Method + Path | Request | Response |
+|---------------|---------|----------|
+| `POST /check`        | `CheckRequest`       | `CheckResponse` |
+| `POST /write`        | `WriteRequest`       | `WriteResponse` |
+| `POST /read`         | `ReadRequest`        | `ReadResponse` |
+| `POST /expand`       | `ExpandRequest`      | `ExpandResponse` |
+| `POST /list-objects` | `ListObjectsRequest` | `ListObjectsResponse` |
+| `POST /list-users`   | `ListUsersRequest`   | `ListUsersResponse` |
+
+Config plane ([Service.ConfigHandler], paths relative to its mount root):
+
+| Method + Path | Request | Response |
+|---------------|---------|----------|
+| `POST /write`         | `NamespaceConfig` (with expected `Version`) | `NamespaceConfig` (with assigned `Version`) |
+| `POST /read`          | `{ "namespace": ... }` | `NamespaceConfig` |
+| `POST /list`          | `{}`                 | `{ "configs": [ ... ] }` |
+| `POST /read-version`  | `{ "namespace": ..., "version": N }` | `NamespaceConfig` |
+| `POST /list-versions` | `{ "namespace": ... }` | `{ "versions": [ ... ] }` |
 
 The request/response bodies are the JSON/gob encodings of the Go types in §13.
+A logical error is returned in an envelope (`{ "error": { "code", ... } }`) so a
+typed client reconstructs the category; see §14.3 and §14.5.
 
 ### 14.3 Error and status conventions
 
@@ -934,10 +955,11 @@ requests (bad method, unsupported content-type, undecodable body) return
 Per §1.2, the library is identity-agnostic:
 
 - The library **MUST NOT** implement authentication for its endpoints.
-- The embedding application **MUST** wrap or gate the mutating endpoints
-  (`write`, `config/*`) — and, where appropriate, the read endpoints — with its
-  own authn/authz middleware before exposing them, e.g. by mounting them behind
-  an `httphelp` handler that has already established the caller's identity.
+- The embedding application **MUST** wrap or gate the mutating surface (the data
+  plane's `/write` and the entire config plane) — and, where appropriate, the
+  read endpoints — with its own authn/authz middleware before exposing the
+  handlers. The two-handler split (§14.1) exists so the high-privilege config
+  plane can be mounted separately and behind stricter authorization.
 - The authenticated caller's email, when the host wants the library to record
   it or use it in self-service checks, is passed **explicitly** in the request
   (e.g. inside a `Subject`), never inferred by the library from transport
@@ -947,14 +969,21 @@ Per §1.2, the library is identity-agnostic:
 
 ### 14.5 Client helpers
 
-For symmetry the library **SHOULD** provide typed client functions built on
-`httphelp.CallPostHandler`, e.g.:
+The library provides two typed clients mirroring the two handlers, each pointed
+at wherever its handler is mounted:
 
 ```go
-func CheckRemote(ctx context.Context, baseURL string, req *CheckRequest, client *http.Client) (*CheckResponse, error)
+type Client       struct{ /* ... */ } // data plane
+type ConfigClient struct{ /* ... */ } // config plane
+func NewClient(baseURL string, httpClient *http.Client) *Client
+func NewConfigClient(baseURL string, httpClient *http.Client) *ConfigClient
 ```
 
-so callers get a checked round-trip without hand-encoding gob/JSON.
+`Client` has `Check`/`Write`/`Read`/`Expand`/`ListObjects`/`ListUsers`;
+`ConfigClient` has `WriteConfig`/`ReadConfig`/`ListConfigs`/`ReadConfigVersion`/
+`ListConfigVersions`. Both decode the response envelope and return a
+reconstructed `*Error` (so `errors.Is`/`errors.As` work against the §15
+sentinels), giving callers a checked round-trip without hand-encoding gob/JSON.
 
 ---
 
