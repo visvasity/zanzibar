@@ -135,12 +135,7 @@ func (s *Service) Check(ctx context.Context, req *CheckRequest) (*CheckResponse,
 	panic("not implemented")
 }
 
-// Write applies an ordered batch of grants and revokes atomically in one
-// transaction. If any mutation is invalid or any precondition fails, the whole
-// batch is aborted and no change is made.
-func (s *Service) Write(ctx context.Context, req *WriteRequest) (*WriteResponse, error) {
-	panic("not implemented")
-}
+// Write is implemented in write.go.
 
 // Read returns stored tuples (not computed membership) matching the request's
 // filter, in deterministic key order, with cursor-based pagination.
