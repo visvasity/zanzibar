@@ -169,38 +169,5 @@ func (s *Service) ListUsers(ctx context.Context, req *ListUsersRequest) (*ListUs
 	panic("not implemented")
 }
 
-// WriteConfig creates or updates the stored [NamespaceConfig] for its
-// namespace, validating it before commit. It performs a compare-and-set on
-// cfg.Version (§5.5): 0 creates the namespace and fails if one already exists;
-// a non-zero value updates only if it equals the currently stored version. A
-// version mismatch returns a conflict error ([CodeConflict]) and changes
-// nothing; the caller re-reads and retries. On success it returns the stored
-// config carrying its newly assigned Version. This is a privileged
-// administrative operation; the caller is responsible for authorizing it.
-func (s *Service) WriteConfig(ctx context.Context, cfg *NamespaceConfig) (*NamespaceConfig, error) {
-	panic("not implemented")
-}
-
-// ReadConfig returns the stored [NamespaceConfig] for the namespace, including
-// its current Version. It reports an error if no config is stored for it.
-func (s *Service) ReadConfig(ctx context.Context, namespace string) (*NamespaceConfig, error) {
-	panic("not implemented")
-}
-
-// ListConfigs returns all configs stored in the database, each with its Version.
-func (s *Service) ListConfigs(ctx context.Context) ([]NamespaceConfig, error) {
-	panic("not implemented")
-}
-
-// ReadConfigVersion returns the immutable [NamespaceConfig] stored at a specific
-// past version of the namespace (§5.5, §11.2). It reports an error if that
-// version was never written.
-func (s *Service) ReadConfigVersion(ctx context.Context, namespace string, version uint64) (*NamespaceConfig, error) {
-	panic("not implemented")
-}
-
-// ListConfigVersions returns the stored versions for the namespace in ascending
-// order.
-func (s *Service) ListConfigVersions(ctx context.Context, namespace string) ([]uint64, error) {
-	panic("not implemented")
-}
+// Config administration methods (WriteConfig, ReadConfig, ListConfigs,
+// ReadConfigVersion, ListConfigVersions) are implemented in configstore.go.
