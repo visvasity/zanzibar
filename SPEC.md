@@ -541,6 +541,32 @@ stored keys and must be able to clean up even after a config change.
 
 An invalid mutation **MUST** abort the entire Write transaction.
 
+### 8.5 Deletion log and garbage collection (optional)
+
+Deleting an object (§8.1) removes the tuples **on** it but leaves references to it
+as a *subject* elsewhere. Those references are inert — they resolve to the empty
+set and grant nobody — so cleaning them is a space/hygiene concern, not a
+correctness one. An implementation **MAY** offer an optional background collector
+to reclaim them, gated behind a construction option (off by default).
+
+When enabled:
+
+- An `OpDelete` **MUST**, in the same transaction, record a **tombstone** for the
+  deleted object.
+- A grant on an object **MUST** clear that object's tombstone (a re-created object
+  is revived, and its inbound references must be preserved).
+- The collector processes tombstoned objects: for each, it deletes every tuple
+  that names the object as a subject — both bare-object (`X#r@object`) and userset
+  (`X#r@object#rel`) forms, found via the reverse index — and then removes the
+  tombstone. It **MUST** read the tombstone within the same transaction as the
+  sweep, so a concurrent revival (which clears the tombstone) is serialized against
+  it: revival wins and the references are kept; otherwise the sweep proceeds.
+
+Removing the deletion log or never running the collector affects only storage
+reclamation, never a Check decision. Because "an object has no tuples" is **not**
+a valid deletion signal (an object can be legitimately created-but-empty), the
+collector relies on the explicit tombstone, not on tuple absence.
+
 ---
 
 ## 9. Consistency and concurrency

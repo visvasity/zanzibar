@@ -95,6 +95,9 @@ func (s *Service) parseMutation(m *Mutation) (parsedMutation, error) {
 		if m.Precondition != PreconditionNone {
 			return parsedMutation{}, &Error{Code: CodeInvalidArgument, Message: "a precondition is not valid for delete"}
 		}
+		// CreatedAtUnixNano, if supplied, is recorded as the deletion time in the
+		// tombstone (§8.5); the library keeps no clock of its own.
+		pm.meta.CreatedAtUnixNano = m.CreatedAtUnixNano
 		return pm, nil
 	}
 
@@ -189,6 +192,14 @@ func (s *Service) applyMutation(ctx context.Context, tx kv.Transaction, pm *pars
 		if err := setGob(ctx, tx, rev, &meta); err != nil {
 			return false, err
 		}
+		// A grant on an object revives it: clear any deletion tombstone so the
+		// GC does not sweep references to a re-created object (§8.5). Reading and
+		// writing the tombstone key serializes this against a concurrent collect.
+		if s.opts.deletionLog {
+			if err := del(ctx, tx, gcKey(s.opts.keyPrefix, pm.object)); err != nil {
+				return false, err
+			}
+		}
 		return true, nil
 
 	case OpRevoke:
@@ -232,6 +243,13 @@ func (s *Service) applyDelete(ctx context.Context, tx kv.Transaction, pm *parsed
 			return 0, err
 		}
 		if err := del(ctx, tx, reverseKey(prefix, m.subject, m.object, m.relation)); err != nil {
+			return 0, err
+		}
+	}
+	// Record a tombstone so the GC can later sweep references to this deleted
+	// object (§8.5).
+	if s.opts.deletionLog {
+		if err := setGob(ctx, tx, gcKey(prefix, pm.object), &gcRecord{DeletedAtUnixNano: pm.meta.CreatedAtUnixNano}); err != nil {
 			return 0, err
 		}
 	}

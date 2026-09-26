@@ -14,6 +14,7 @@ const (
 	classConfigHistory = "h/" // h/<namespace>/<enc(version)>      -> immutable NamespaceConfig
 	classForward       = "t/" // t/<object>/<relation>/<subject>   -> TupleMeta
 	classReverse       = "s/" // s/<subject>/<object>/<relation>   -> TupleMeta (or empty)
+	classGC            = "g/" // g/<object>                        -> gcRecord (deletion tombstone)
 )
 
 // versionWidth is the fixed decimal width used to encode a uint64 version so
@@ -69,7 +70,26 @@ func forwardRelationRange(prefix, object, relation string) (begin, end string) {
 	return kvutil.PrefixRange(prefix + classForward + object + "/" + relation + "/")
 }
 
-// reverseSubjectRange spans all objects a subject is directly bound to.
+// reverseSubjectRange spans all objects a subject is directly bound to. With subj
+// a bare object string, it also spans all tuples that reference that object as a
+// bare-object subject.
 func reverseSubjectRange(prefix, subj string) (begin, end string) {
 	return kvutil.PrefixRange(prefix + classReverse + subj + "/")
+}
+
+// reverseUsersetRange spans all tuples whose subject is a userset of object (i.e.
+// "object#<anything>"). Together with reverseSubjectRange it covers every
+// reference to object as a subject.
+func reverseUsersetRange(prefix, object string) (begin, end string) {
+	return kvutil.PrefixRange(prefix + classReverse + object + "#")
+}
+
+// gcKey is the tombstone key recorded when an object is deleted (§8.5).
+func gcKey(prefix, object string) string {
+	return prefix + classGC + object
+}
+
+// gcRange spans all deletion tombstones.
+func gcRange(prefix string) (begin, end string) {
+	return kvutil.PrefixRange(prefix + classGC)
 }

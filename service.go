@@ -38,6 +38,7 @@ type options struct {
 	maxDepth      int
 	commitRetries int
 	emailCaseFold bool
+	deletionLog   bool
 }
 
 func defaultOptions() options {
@@ -46,6 +47,7 @@ func defaultOptions() options {
 		maxDepth:      DefaultMaxDepth,
 		commitRetries: DefaultCommitRetries,
 		emailCaseFold: false,
+		deletionLog:   false,
 	}
 }
 
@@ -122,6 +124,19 @@ func WithCommitRetries(n int) Option {
 func WithEmailCaseFold(fold bool) Option {
 	return func(o *options) error {
 		o.emailCaseFold = fold
+		return nil
+	}
+}
+
+// WithDeletionLog enables the deletion log that backs background garbage
+// collection (§8.5): an OpDelete records a tombstone for the object, a grant on
+// an object clears its tombstone (revival), and [Service.CollectGarbage] /
+// [Service.RunGarbageCollector] sweep dangling references to deleted objects. It
+// is off by default; enable it from construction for full coverage, since
+// deletes performed while it is off leave no tombstone.
+func WithDeletionLog() Option {
+	return func(o *options) error {
+		o.deletionLog = true
 		return nil
 	}
 }

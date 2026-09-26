@@ -7,6 +7,12 @@ import (
 	"encoding/gob"
 )
 
+// gcRecord is the value stored at a deletion tombstone (§8.5). It marks that an
+// object was deleted so the garbage collector can sweep dangling references to it.
+type gcRecord struct {
+	DeletedAtUnixNano int64
+}
+
 // tupleMeta is the value stored for each tuple record (§11.3). It is small and
 // never part of tuple identity. CreatedAtUnixNano never affects Check; the
 // interval bounds gate membership per §6.6.
