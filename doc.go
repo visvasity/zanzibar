@@ -81,8 +81,9 @@
 //
 // [Service.Handler] returns the data-plane http.Handler (check, write, read,
 // expand, list-objects, list-users) and [Service.ConfigHandler] the
-// schema-administration handler; mount them wherever you like (an
-// httphelp.Server, net/http, any router), behind your own middleware. They are
+// schema-administration handler; both are plain net/http handlers with no
+// third-party dependency, so mount them wherever you like (net/http or any
+// router that accepts an http.Handler), behind your own middleware. They are
 // separate so the high-privilege config plane can sit behind stricter
 // authorization. The library is identity-agnostic: it performs no authentication
 // and makes no decision about who may call the admin surface — the embedding

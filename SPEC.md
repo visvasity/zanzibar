@@ -8,9 +8,9 @@ This document is the normative specification for `zanzibar`, a minimalist
 relationship-based access control (ReBAC) library modeled on Google's
 [Zanzibar](https://research.google/pubs/pub48190/). It defines the data model,
 the evaluation semantics, the persistence layout on top of the
-`github.com/visvasity/kv` key-value API, the Go API, and the HTTP API that is
-attached to a `github.com/visvasity/httphelp.Server` by higher-level
-applications.
+`github.com/visvasity/kv` key-value API, the Go API, and the HTTP API
+(`net/http` handlers) that higher-level applications mount on the HTTP server of
+their choice.
 
 The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**,
 **SHOULD**, **SHOULD NOT**, **RECOMMENDED**, **MAY**, and **OPTIONAL** in this
@@ -33,9 +33,9 @@ document are to be interpreted as described in RFC 2119.
    permissions from a parent object, transitively).
 5. Persist all state through the `kv.Database` interface only, using its
    transactions and snapshots for atomicity and point-in-time consistency.
-6. Expose the check/grant/revoke/query operations over HTTP so that the
-   handlers can be mounted onto an `httphelp.Server` by the embedding
-   application.
+6. Expose the check/grant/revoke/query operations as standard `net/http`
+   handlers that the embedding application mounts on any HTTP server, with no
+   third-party HTTP dependency.
 
 ### 1.2 Non-goals (explicitly out of scope)
 
@@ -877,8 +877,9 @@ truncated by cycle/depth limits (§10.1).
 ### 14.1 Mounting
 
 The library exposes its operations as two `http.Handler` values that the host
-mounts wherever it likes (on an `httphelp.Server`, the standard library, or any
-router), so it never depends on a particular server type:
+mounts wherever it likes (`net/http` or any router that accepts an
+`http.Handler`), so it depends on no particular server type and pulls in no
+third-party HTTP package:
 
 ```go
 // Handler serves the data plane: check, write, read, expand, list-objects,
@@ -907,8 +908,9 @@ serves them on, and the authn/authz middleware it wraps them with (§14.4).
 ### 14.2 Endpoints
 
 All endpoints use `POST` with request body content-type `application/json` or
-`application/gob`, matching the `httphelp` `PostHandler` convention. The
-response is encoded in the **same** content-type as the request.
+`application/gob`. The response is encoded in the **same** content-type as the
+request. The handlers are plain `net/http` handlers with no third-party
+dependency.
 
 Data plane ([Service.Handler], paths relative to its mount root):
 
@@ -937,18 +939,19 @@ typed client reconstructs the category; see §14.3 and §14.5.
 
 ### 14.3 Error and status conventions
 
-The `httphelp` `PostHandler` helper returns HTTP **200** even when the handler
-function returns an error, encoding the failure as an object
-`{ "Error": "...", "ErrorType": "..." }` in the response body; malformed
-requests (bad method, unsupported content-type, undecodable body) return
-`4xx` with a plain-text body. This specification adopts that convention:
+A successful call and a logical failure both return HTTP **200** with a
+response envelope: `{ "data": <RESP> }` on success, or
+`{ "error": { "code", "message", ... } }` when the operation fails. Malformed
+requests (bad method, unsupported content-type, undecodable body) return `4xx`
+with a plain-text body. This convention lets a typed client reconstruct the
+error category (§15) rather than lose it:
 
 - Callers **MUST** treat a non-200 status as a transport/format failure.
-- Callers **MUST** inspect the decoded body for an `Error` field to detect a
+- Callers **MUST** inspect the decoded envelope's `error` field to detect a
   logical failure (validation error, precondition failure, depth exceeded,
   conflict) even on 200 (§15).
-- A successful `check` returns `{ "Allowed": true|false }` and no `Error`
-  field. `Allowed:false` is a normal negative decision, **not** an error.
+- A successful `check` returns `{ "data": { "allowed": true|false } }` and no
+  `error`. `allowed:false` is a normal negative decision, **not** an error.
 
 ### 14.4 Authentication and authorization of the HTTP surface
 
@@ -963,9 +966,8 @@ Per §1.2, the library is identity-agnostic:
 - The authenticated caller's email, when the host wants the library to record
   it or use it in self-service checks, is passed **explicitly** in the request
   (e.g. inside a `Subject`), never inferred by the library from transport
-  state. The library **MAY** read the originating `*http.Request` via
-  `httphelp.RequestContextKey` for logging only, and **MUST NOT** derive
-  authorization decisions from it.
+  state. The library evaluates using only the request body and **MUST NOT**
+  derive authorization decisions from transport-level identity.
 
 ### 14.5 Client helpers
 

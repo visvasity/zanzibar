@@ -3,11 +3,21 @@
 package zanzibar
 
 import (
+	"bytes"
 	"context"
+	"encoding/gob"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
+	"strings"
+)
 
-	"github.com/visvasity/httphelp"
+// Request/response body content types accepted and produced by the handlers.
+const (
+	contentTypeJSON = "application/json"
+	contentTypeGob  = "application/gob"
 )
 
 // Data-plane endpoint path suffixes, served by [Service.Handler].
@@ -75,8 +85,8 @@ type wireError struct {
 }
 
 // respEnvelope wraps every response so that a logical error is carried
-// explicitly rather than lost in the httphelp 200-with-Error-body convention
-// (§14.3).
+// explicitly (as data-or-error) rather than lost, since both success and logical
+// failure are returned at HTTP 200 (§14.3).
 type respEnvelope[T any] struct {
 	Data  *T         `json:"data,omitempty"`
 	Error *wireError `json:"error,omitempty"`
@@ -94,19 +104,73 @@ func (w *wireError) toError() *Error {
 	return &Error{Code: w.Code, Message: w.Message, Object: w.Object, Relation: w.Relation, Subject: w.Subject}
 }
 
-// postHandler adapts a Service method to an httphelp handler, packing the result
-// (or error) into a respEnvelope. The handler function itself never returns an
-// error, so httphelp always encodes the envelope.
+// postHandler adapts a Service method to an http.Handler. It accepts a POST with
+// a JSON or gob body, decodes the request, invokes f, and always returns HTTP 200
+// with the result (or the error) packed into a respEnvelope, encoded in the same
+// content type as the request (§14.3).
 func postHandler[REQ, RESP any](f func(context.Context, *REQ) (*RESP, error)) http.Handler {
-	return httphelp.PostHandler2(func(ctx context.Context, req *REQ, out *respEnvelope[RESP]) error {
-		data, err := f(ctx, req)
-		if err != nil {
-			out.Error = toWireError(err)
-			return nil
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
 		}
-		out.Data = data
-		return nil
+		ctype, ok := negotiateContentType(r.Header.Get("Content-Type"))
+		if !ok {
+			http.Error(w, "unsupported content-type: use application/json or application/gob", http.StatusBadRequest)
+			return
+		}
+		var req REQ
+		if err := decodeBody(ctype, r.Body, &req); err != nil {
+			http.Error(w, "could not decode request: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		var env respEnvelope[RESP]
+		if data, err := f(r.Context(), &req); err != nil {
+			env.Error = toWireError(err)
+		} else {
+			env.Data = data
+		}
+
+		var buf bytes.Buffer
+		if err := encodeBody(ctype, &buf, &env); err != nil {
+			http.Error(w, "could not encode response", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", ctype)
+		w.Write(buf.Bytes())
 	})
+}
+
+// negotiateContentType maps a request Content-Type header to one of the
+// supported body encodings.
+func negotiateContentType(header string) (string, bool) {
+	mt := header
+	if i := strings.IndexByte(mt, ';'); i >= 0 {
+		mt = mt[:i]
+	}
+	switch strings.TrimSpace(strings.ToLower(mt)) {
+	case contentTypeJSON:
+		return contentTypeJSON, true
+	case contentTypeGob:
+		return contentTypeGob, true
+	default:
+		return "", false
+	}
+}
+
+func decodeBody(ctype string, r io.Reader, v any) error {
+	if ctype == contentTypeGob {
+		return gob.NewDecoder(r).Decode(v)
+	}
+	return json.NewDecoder(r).Decode(v)
+}
+
+func encodeBody(ctype string, w io.Writer, v any) error {
+	if ctype == contentTypeGob {
+		return gob.NewEncoder(w).Encode(v)
+	}
+	return json.NewEncoder(w).Encode(v)
 }
 
 // Handler returns the data-plane HTTP handler: check, write, read, expand,
@@ -163,8 +227,32 @@ func (s *Service) ConfigHandler() http.Handler {
 }
 
 func callPost[REQ, RESP any](ctx context.Context, baseURL string, httpClient *http.Client, path string, req *REQ) (*RESP, error) {
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+	var body bytes.Buffer
+	if err := gob.NewEncoder(&body).Encode(req); err != nil {
+		return nil, err
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+path, &body)
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", contentTypeGob)
+	httpReq.Header.Set("Accept", contentTypeGob)
+
+	resp, err := httpClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("request to %s failed: %s: %s", path, resp.Status, strings.TrimSpace(string(msg)))
+	}
+
 	var env respEnvelope[RESP]
-	if err := httphelp.CallPostHandler(ctx, baseURL+path, req, &env, httpClient); err != nil {
+	if err := gob.NewDecoder(resp.Body).Decode(&env); err != nil {
 		return nil, err
 	}
 	if env.Error != nil {

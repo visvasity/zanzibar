@@ -6,13 +6,13 @@ import (
 	"bytes"
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/visvasity/cli"
-	"github.com/visvasity/httphelp"
 	"github.com/visvasity/kv"
 	"github.com/visvasity/kvmemdb"
 	"github.com/visvasity/zanzibar"
@@ -36,19 +36,12 @@ func startServer(t *testing.T) (dataURL, configURL string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := httphelp.NewServer()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { server.Close() })
-	server.Handle("/authz/", http.StripPrefix("/authz", svc.Handler()))
-	server.Handle("/cfg/", http.StripPrefix("/cfg", svc.ConfigHandler()))
-	addr, err := server.StartTCP("127.0.0.1:0", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	base := "http://" + addr.String()
-	return base + "/authz/", base + "/cfg/"
+	mux := http.NewServeMux()
+	mux.Handle("/authz/", http.StripPrefix("/authz", svc.Handler()))
+	mux.Handle("/cfg/", http.StripPrefix("/cfg", svc.ConfigHandler()))
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+	return ts.URL + "/authz/", ts.URL + "/cfg/"
 }
 
 // run executes one CLI command, capturing stdout, and fails on error.

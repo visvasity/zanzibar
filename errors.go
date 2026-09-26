@@ -10,7 +10,7 @@ import (
 )
 
 // ErrorCode is a stable, documented category for an [Error]. Over HTTP it is
-// surfaced as the ErrorType field of the httphelp error body.
+// surfaced as the code field of the error envelope (§14.3).
 type ErrorCode string
 
 const (

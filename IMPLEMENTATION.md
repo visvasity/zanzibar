@@ -35,13 +35,14 @@ SPEC governs behavior where the two disagree.
 
 ## 2. Prerequisites and tooling
 
-- **Go toolchain:** go **1.26+** is required — `httphelp` declares `go 1.26.0`.
-  (Note: a sandbox pinned to an older toolchain cannot build the HTTP layer; the
-  pure/`kv`-only layers build on 1.23+.)
+- **Go toolchain:** go **1.26+** is required (the `cli` module declares
+  `go 1.26.0`).
 - **Module deps:**
   - `github.com/visvasity/kv` + `kv/kvutil` — persistence and gob helpers.
-  - `github.com/visvasity/httphelp` — HTTP mount + RPC helpers (Phase 8).
+  - `github.com/visvasity/cli` — CLI framework (used by `aclcmds`).
   - `github.com/visvasity/kvmemdb` — **test-only** in-memory backend.
+  - The HTTP layer uses only the standard library (`net/http`, `encoding/json`,
+    `encoding/gob`) — no third-party HTTP dependency.
 - **`go.sum`:** not yet generated (the pins in `go.mod` were added offline). Run
   `go mod tidy` in a go-1.26 environment before the first build.
 - **Formatting/vetting:** `gofmt`, `go vet`, and `go test -race` on every phase.
@@ -275,15 +276,17 @@ fixture; pagination; cap behavior.
 **Goal:** the surface applications mount.
 
 **Work items**
-- `Handler()` / `ConfigHandler()` returning `http.Handler` (a ServeMux per
-  plane), each op wrapped via `httphelp.PostHandler2` in a response envelope so
-  typed errors survive the wire (§14.1/§14.3).
-- `Client` (data) and `ConfigClient` (config) via `httphelp.CallPostHandler`.
+- `Handler()` / `ConfigHandler()` returning `http.Handler` (a `net/http` ServeMux
+  per plane), each op a stdlib POST handler that JSON/gob-decodes the request and
+  packs the result or error into a response envelope so typed errors survive the
+  wire (§14.1/§14.3). No third-party HTTP dependency.
+- `Client` (data) and `ConfigClient` (config), each a stdlib `http.Client` round
+  trip that unwraps the envelope into a typed `*Error`.
 
-**Tests:** bring up `httphelp.Server` on `127.0.0.1:0` (and/or a unix socket);
-round-trip every endpoint with `Client`; assert the httphelp error surface
-(handler error → `{Error, ErrorType}` body at HTTP 200; `Allowed:false` is not an
-error, §14.3).
+**Tests:** bring up an `httptest.Server` mounting both handlers; round-trip every
+endpoint with `Client`/`ConfigClient`; assert the envelope error surface (logical
+failure → `{error:{code,...}}` at HTTP 200 → reconstructed `*Error`;
+`allowed:false` is not an error, §14.3).
 **Exit criteria:** every method reachable over HTTP with matching semantics.
 
 ### Phase 9 — Conformance + hardening

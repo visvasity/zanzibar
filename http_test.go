@@ -6,31 +6,23 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
-
-	"github.com/visvasity/httphelp"
 )
 
 // startHTTP mounts a fresh Service's data and config handlers at disjoint
-// prefixes on an httphelp server over plaintext loopback TCP, returning typed
-// clients for each.
+// prefixes on a test HTTP server, returning typed clients for each.
 func startHTTP(t *testing.T) (*Client, *ConfigClient) {
 	t.Helper()
 	svc := newTestService(t)
-	server, err := httphelp.NewServer()
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
-	}
-	t.Cleanup(func() { server.Close() })
 
-	server.Handle("/authz/", http.StripPrefix("/authz", svc.Handler()))
-	server.Handle("/cfg/", http.StripPrefix("/cfg", svc.ConfigHandler()))
-	addr, err := server.StartTCP("127.0.0.1:0", false)
-	if err != nil {
-		t.Fatalf("StartTCP: %v", err)
-	}
-	base := "http://" + addr.String()
-	return NewClient(base+"/authz/", nil), NewConfigClient(base+"/cfg/", nil)
+	mux := http.NewServeMux()
+	mux.Handle("/authz/", http.StripPrefix("/authz", svc.Handler()))
+	mux.Handle("/cfg/", http.StripPrefix("/cfg", svc.ConfigHandler()))
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+
+	return NewClient(ts.URL+"/authz/", nil), NewConfigClient(ts.URL+"/cfg/", nil)
 }
 
 func TestHTTPRoundTrip(t *testing.T) {
