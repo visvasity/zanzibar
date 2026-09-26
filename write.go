@@ -13,16 +13,16 @@ type parsedMutation struct {
 	op            MutationOp
 	object        string // canonical "namespace:id"
 	namespace     string // object's namespace
-	relation      string
+	relation      string // grant/revoke
 	subjStr       string // canonical subject string (email case-folded if enabled)
 	subjNamespace string // "" for a user subject; namespace for userset/object subjects
 	precondition  Precondition
-	meta          tupleMeta
+	meta          tupleMeta // grant only
 }
 
-// Write applies an ordered batch of grants and revokes atomically (§8). All
-// mutations are validated statically first; config-dependent checks and the
-// writes then run inside a single transaction.
+// Write applies an ordered batch of grants, revokes, and deletes atomically
+// (§8). All mutations are validated statically first; config-dependent checks
+// and the writes then run inside a single transaction.
 func (s *Service) Write(ctx context.Context, req *WriteRequest) (*WriteResponse, error) {
 	if req == nil {
 		return nil, &Error{Code: CodeInvalidArgument, Message: "nil write request"}
@@ -43,7 +43,16 @@ func (s *Service) Write(ctx context.Context, req *WriteRequest) (*WriteResponse,
 		configs := make(map[string]*NamespaceConfig) // per-tx cache of effective configs
 
 		for i := range parsed {
-			changed, err := s.applyMutation(ctx, tx, &parsed[i], configs)
+			pm := &parsed[i]
+			if pm.op == OpDelete {
+				n, err := s.applyDelete(ctx, tx, pm)
+				if err != nil {
+					return err
+				}
+				applied += n
+				continue
+			}
+			changed, err := s.applyMutation(ctx, tx, pm, configs)
 			if err != nil {
 				return err
 			}
@@ -62,7 +71,9 @@ func (s *Service) Write(ctx context.Context, req *WriteRequest) (*WriteResponse,
 // parseMutation performs static (config-independent) validation of one mutation
 // and returns its canonical form (§8.4, §12).
 func (s *Service) parseMutation(m *Mutation) (parsedMutation, error) {
-	if m.Op != OpGrant && m.Op != OpRevoke {
+	switch m.Op {
+	case OpGrant, OpRevoke, OpDelete:
+	default:
 		return parsedMutation{}, &Error{Code: CodeInvalidArgument, Message: "invalid mutation op: " + string(m.Op)}
 	}
 	switch m.Precondition {
@@ -75,45 +86,49 @@ func (s *Service) parseMutation(m *Mutation) (parsedMutation, error) {
 	if err != nil {
 		return parsedMutation{}, err
 	}
+	pm := parsedMutation{op: m.Op, object: ns + ":" + id, namespace: ns, precondition: m.Precondition}
+
+	if m.Op == OpDelete {
+		if m.Tuple.Relation != "" || m.Tuple.Subject != "" {
+			return parsedMutation{}, &Error{Code: CodeInvalidArgument, Message: "delete takes only an object (relation and subject must be empty)"}
+		}
+		if m.Precondition != PreconditionNone {
+			return parsedMutation{}, &Error{Code: CodeInvalidArgument, Message: "a precondition is not valid for delete"}
+		}
+		return pm, nil
+	}
+
+	// grant / revoke: an exact tuple.
 	if err := validateRelation(m.Tuple.Relation); err != nil {
 		return parsedMutation{}, err
 	}
+	pm.relation = m.Tuple.Relation
 	sub, err := parseSubject(m.Tuple.Subject)
 	if err != nil {
 		return parsedMutation{}, err
 	}
 	if sub.wildcard {
-		// The "user:*" wildcard is a per-relation config feature that is off by
-		// default and not yet configurable, so it cannot be granted (§3.2).
 		return parsedMutation{}, &Error{Code: CodeInvalidArgument, Message: "wildcard subject 'user:*' is not enabled"}
 	}
-	if err := validInterval(m.NotBeforeUnixNano, m.NotAfterUnixNano); err != nil {
-		return parsedMutation{}, err
-	}
-
-	subjNamespace := ""
+	pm.subjStr = canonicalSubject(sub, s.opts.emailCaseFold)
 	if sub.kind == kindUserset || sub.kind == kindObject {
-		subjNamespace = sub.namespace
+		pm.subjNamespace = sub.namespace
 	}
-
-	return parsedMutation{
-		op:            m.Op,
-		object:        ns + ":" + id,
-		namespace:     ns,
-		relation:      m.Tuple.Relation,
-		subjStr:       canonicalSubject(sub, s.opts.emailCaseFold),
-		subjNamespace: subjNamespace,
-		precondition:  m.Precondition,
-		meta: tupleMeta{
+	if m.Op == OpGrant {
+		if err := validInterval(m.NotBeforeUnixNano, m.NotAfterUnixNano); err != nil {
+			return parsedMutation{}, err
+		}
+		pm.meta = tupleMeta{
 			CreatedAtUnixNano: m.CreatedAtUnixNano,
 			NotBeforeUnixNano: m.NotBeforeUnixNano,
 			NotAfterUnixNano:  m.NotAfterUnixNano,
-		},
-	}, nil
+		}
+	}
+	return pm, nil
 }
 
-// applyMutation runs config-dependent validation and applies one mutation within
-// the transaction. It reports whether the mutation changed stored state (§8.3).
+// applyMutation runs config-dependent validation and applies one grant or revoke
+// within the transaction. It reports whether stored state changed (§8.3).
 func (s *Service) applyMutation(ctx context.Context, tx kv.Transaction, pm *parsedMutation, configs map[string]*NamespaceConfig) (bool, error) {
 	// The object's namespace must be registered and declare the relation.
 	cfg, err := s.cachedConfig(ctx, tx, pm.namespace, configs)
@@ -146,7 +161,6 @@ func (s *Service) applyMutation(ctx context.Context, tx kv.Transaction, pm *pars
 		return false, err
 	}
 
-	// Preconditions (§8.3) are evaluated against current state.
 	switch pm.precondition {
 	case PreconditionMustExist:
 		if !found {
@@ -190,6 +204,38 @@ func (s *Service) applyMutation(ctx context.Context, tx kv.Transaction, pm *pars
 		return true, nil
 	}
 	return false, &Error{Code: CodeInvalidArgument, Message: "invalid mutation op"}
+}
+
+// applyDelete removes every tuple stored on pm.object (§8.1). It operates on
+// stored keys and requires no config, so it cleans up even after a namespace's
+// config has changed. It returns the number of tuples deleted.
+func (s *Service) applyDelete(ctx context.Context, tx kv.Transaction, pm *parsedMutation) (int, error) {
+	prefix := s.opts.keyPrefix
+	beg, end := forwardObjectRange(prefix, pm.object)
+
+	// Collect matching triples first (do not mutate while iterating).
+	type triple struct{ object, relation, subject string }
+	var matches []triple
+	var ierr error
+	for k := range tx.Ascend(ctx, beg, end, &ierr) {
+		object, relation, subject, ok := decodeTupleKey(k, prefix, false)
+		if !ok {
+			continue
+		}
+		matches = append(matches, triple{object, relation, subject})
+	}
+	if ierr != nil {
+		return 0, fromKV(ierr)
+	}
+	for _, m := range matches {
+		if err := del(ctx, tx, forwardKey(prefix, m.object, m.relation, m.subject)); err != nil {
+			return 0, err
+		}
+		if err := del(ctx, tx, reverseKey(prefix, m.subject, m.object, m.relation)); err != nil {
+			return 0, err
+		}
+	}
+	return len(matches), nil
 }
 
 // cachedConfig reads a namespace's effective config through tx once per Write,

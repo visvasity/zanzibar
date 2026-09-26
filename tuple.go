@@ -27,9 +27,17 @@ const (
 	// otherwise idempotent.
 	OpGrant MutationOp = "grant"
 
-	// OpRevoke deletes the tuple. Revoking a non-existent tuple is a no-op
+	// OpRevoke deletes the exact tuple. Revoking a non-existent tuple is a no-op
 	// unless a precondition requires its presence.
 	OpRevoke MutationOp = "revoke"
+
+	// OpDelete removes every tuple stored on the mutation's Tuple.Object
+	// (object#*@*), regardless of relation or subject. Its Tuple must set only
+	// Object (Relation and Subject empty). This is the operation to run when the
+	// object itself is deleted; it removes all permissions granted on the object
+	// (§8.1). References to the object as a subject elsewhere are unaffected and
+	// become inert (they resolve to the empty set).
+	OpDelete MutationOp = "delete"
 )
 
 // Precondition is an optional guard evaluated against the current state before a

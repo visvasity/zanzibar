@@ -122,6 +122,32 @@ func TestCLIEndToEnd(t *testing.T) {
 	}
 }
 
+func TestCLIDeleteObject(t *testing.T) {
+	dataURL, configURL := startServer(t)
+	// Seed a config and a few tuples on one object, then delete the object.
+	cc := zanzibar.NewConfigClient(configURL, nil)
+	if _, err := cc.WriteConfig(context.Background(), &zanzibar.NamespaceConfig{
+		Namespace: "doc", Relations: map[string]zanzibar.Rewrite{
+			"owner":  {This: &zanzibar.This{}},
+			"viewer": {This: &zanzibar.This{}},
+		}}); err != nil {
+		t.Fatal(err)
+	}
+	run(t, "grant", "-acl-api-url", dataURL, "doc:d1", "owner", "user:a@x.com")
+	run(t, "grant", "-acl-api-url", dataURL, "doc:d1", "viewer", "user:b@x.com")
+	run(t, "grant", "-acl-api-url", dataURL, "doc:d2", "viewer", "user:c@x.com")
+
+	if out := run(t, "delete-object", "-acl-api-url", dataURL, "doc:d1"); !strings.Contains(out, "deleted 2 grant") {
+		t.Errorf("delete-object = %q, want 2 grants", out)
+	}
+	if out := run(t, "list-tuples", "-acl-api-url", dataURL, "-object", "doc:d1"); strings.TrimSpace(out) != "" {
+		t.Errorf("doc:d1 still has tuples: %q", out)
+	}
+	if out := run(t, "list-tuples", "-acl-api-url", dataURL, "-object", "doc:d2"); !strings.Contains(out, "doc:d2#viewer@user:c@x.com") {
+		t.Errorf("doc:d2 should be untouched: %q", out)
+	}
+}
+
 func TestCLIErrors(t *testing.T) {
 	dataURL, _ := startServer(t)
 

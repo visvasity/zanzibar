@@ -484,10 +484,20 @@ Cycle protection (§6.4) bounds pathological parent loops.
 
 ### 8.1 Operations
 
-A **Write** request carries an ordered list of mutations, each either:
+A **Write** request carries an ordered list of mutations, each one of:
 
-- **grant** (upsert) a tuple `object#relation@subject`, or
-- **revoke** (delete) a tuple `object#relation@subject`.
+- **grant** (upsert) the exact tuple `object#relation@subject`,
+- **revoke** (delete) the exact tuple `object#relation@subject`, or
+- **delete** every tuple stored on `object` (`object#*@*`) — the tuple carries
+  only `object` (relation and subject empty).
+
+`delete` is the operation to run when the object itself is deleted: it removes
+all permissions granted **on** that object in one mutation. Removing those tuples
+is sufficient for correctness — any remaining reference to the object as a
+*subject* (a userset `X#r@object#rel` or an object subject `X#r@object`) resolves
+to the empty set and grants nobody (fail-closed). Such references are inert
+leftovers; a host that also wants to reclaim them sweeps by subject (§10.2 Read
+by subject) and revokes those tuples too.
 
 ### 8.2 Atomicity
 
@@ -503,10 +513,12 @@ request or return a conflict error; it **MUST NOT** partially apply.
   extended or shortened — and is otherwise idempotent. A grant carrying the same
   interval as the stored tuple is a true no-op. The creation timestamp
   **MUST NOT** be reset by a redundant grant.
-- Revoking a non-existent tuple is a no-op success by default.
-- A Write request **MAY** carry optional preconditions (e.g. "tuple must
+- Revoking a non-existent tuple is a no-op success by default; a delete of an
+  object with no stored tuples is likewise a no-op.
+- A grant or revoke **MAY** carry optional preconditions (e.g. "tuple must
   exist" / "must not exist"); if a precondition fails the whole transaction
-  **MUST** be aborted with a precondition error (§15).
+  **MUST** be aborted with a precondition error (§15). A precondition on a
+  **delete** **MUST** be rejected as invalid.
 
 ### 8.4 Validation at write time
 
@@ -516,6 +528,10 @@ Each granted/revoked tuple **MUST** be validated (§12) before commit:
 - `relation` **MUST** be declared in that namespace's effective config.
 - `subject` **MUST** be a syntactically valid user, userset, or object
   subject; a userset/object subject's namespace **MUST** be registered.
+
+A **delete** validates only that `object` is syntactically well-formed; it does
+**not** require the namespace to still be registered, because it operates on
+stored keys and must be able to clean up even after a config change.
 - The validity interval (§6.6), if present, **MUST** be well-formed: when both
   `NotBefore` and `NotAfter` are non-zero, `NotBefore` **MUST** be strictly less
   than `NotAfter`. An empty or inverted interval **MUST** be rejected with an
@@ -827,7 +843,7 @@ type CheckRequest  struct { Object, Relation, Subject string; AsOfUnixNano int64
 type CheckResponse struct { Allowed bool }
 
 type Mutation struct {
-    Op    string // "grant" | "revoke"
+    Op    string // "grant" | "revoke" | "delete" (delete: Tuple has only Object)
     Tuple Tuple
     // Optional precondition, e.g. "must_exist" | "must_not_exist" (§8.3).
     Precondition string

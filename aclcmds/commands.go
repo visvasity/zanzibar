@@ -13,6 +13,7 @@ func Commands() []cli.Command {
 	return []cli.Command{
 		new(Grant),
 		new(Revoke),
+		new(DeleteObject),
 		new(Check),
 		new(ListTuples),
 		new(Expand),

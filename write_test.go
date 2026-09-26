@@ -316,6 +316,76 @@ func TestWriteCaseFold(t *testing.T) {
 	checkIndexInvariant(t, svc)
 }
 
+func deleteMut(object string) Mutation {
+	return Mutation{Op: OpDelete, Tuple: Tuple{Object: object}}
+}
+
+func TestDeleteObject(t *testing.T) {
+	ctx := context.Background()
+	svc := newConfiguredService(t)
+	grantAll(t, svc,
+		tup("doc:readme", "owner", "user:alice@example.com"),
+		tup("doc:readme", "viewer", "user:bob@example.com"),
+		tup("doc:readme", "viewer", "group:eng#member"),
+		tup("doc:readme", "parent", "folder:proj"),
+		tup("doc:other", "viewer", "user:carol@example.com"),
+	)
+	// Delete everything on doc:readme (object deletion cleanup).
+	resp, err := svc.Write(ctx, &WriteRequest{Mutations: []Mutation{deleteMut("doc:readme")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Applied != 4 {
+		t.Errorf("Applied = %d, want 4", resp.Applied)
+	}
+	if got := readAll(t, svc, ReadRequest{Object: "doc:readme"}, 0); len(got) != 0 {
+		t.Errorf("doc:readme still has %d tuples", len(got))
+	}
+	// An unrelated object is untouched.
+	if got := readAll(t, svc, ReadRequest{Object: "doc:other"}, 0); len(got) != 1 {
+		t.Errorf("doc:other should be untouched, got %d", len(got))
+	}
+	checkIndexInvariant(t, svc)
+}
+
+func TestDeleteEmptyObject(t *testing.T) {
+	ctx := context.Background()
+	svc := newConfiguredService(t)
+	resp, err := svc.Write(ctx, &WriteRequest{Mutations: []Mutation{deleteMut("doc:nothing")}})
+	if err != nil || resp.Applied != 0 {
+		t.Errorf("delete of empty object = (%v, %v), want (Applied 0, nil)", resp, err)
+	}
+}
+
+func TestDeleteRejectsRelationOrSubject(t *testing.T) {
+	ctx := context.Background()
+	svc := newConfiguredService(t)
+	bad := []Mutation{
+		{Op: OpDelete, Tuple: Tuple{Object: "doc:readme", Relation: "viewer"}},
+		{Op: OpDelete, Tuple: Tuple{Object: "doc:readme", Subject: "user:a@b.com"}},
+		{Op: OpDelete, Precondition: PreconditionMustExist, Tuple: Tuple{Object: "doc:readme"}},
+	}
+	for _, m := range bad {
+		if _, err := svc.Write(ctx, &WriteRequest{Mutations: []Mutation{m}}); !errors.Is(err, ErrInvalidArgument) {
+			t.Errorf("delete %+v = %v, want ErrInvalidArgument", m.Tuple, err)
+		}
+	}
+}
+
+func TestDeleteIgnoresConfig(t *testing.T) {
+	ctx := context.Background()
+	svc := newConfiguredService(t)
+	// Delete against an unregistered namespace is a clean no-op, not an error —
+	// delete works on stored keys regardless of config.
+	resp, err := svc.Write(ctx, &WriteRequest{Mutations: []Mutation{deleteMut("ghost:x")}})
+	if err != nil {
+		t.Fatalf("delete on unregistered namespace: %v", err)
+	}
+	if resp.Applied != 0 {
+		t.Errorf("Applied = %d, want 0", resp.Applied)
+	}
+}
+
 func TestWriteBatchMultipleThenInvariant(t *testing.T) {
 	ctx := context.Background()
 	svc := newConfiguredService(t)
