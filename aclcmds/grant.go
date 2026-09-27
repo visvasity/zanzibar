@@ -15,6 +15,7 @@ import (
 // Grant grants a relation tuple.
 type Grant struct {
 	flags ClientFlags
+	sopts SubjectOptions
 
 	notBefore string
 	notAfter  string
@@ -53,13 +54,17 @@ func (c *Grant) run(ctx context.Context, args []string) error {
 		}
 	}
 
+	subject, err := c.sopts.mapInput(ctx, args[2])
+	if err != nil {
+		return err
+	}
 	client, err := c.flags.Client()
 	if err != nil {
 		return err
 	}
 	resp, err := client.Write(ctx, &zanzibar.WriteRequest{Mutations: []zanzibar.Mutation{{
 		Op:                zanzibar.OpGrant,
-		Tuple:             zanzibar.Tuple{Object: args[0], Relation: args[1], Subject: args[2]},
+		Tuple:             zanzibar.Tuple{Object: args[0], Relation: args[1], Subject: subject},
 		CreatedAtUnixNano: created,
 		NotBeforeUnixNano: nb,
 		NotAfterUnixNano:  na,
@@ -67,6 +72,12 @@ func (c *Grant) run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(cli.Stdout(ctx), "granted %s#%s@%s (applied=%d)\n", args[0], args[1], args[2], resp.Applied)
+	fmt.Fprintf(cli.Stdout(ctx), "granted %s#%s@%s (applied=%d)\n", args[0], args[1], subject, resp.Applied)
 	return nil
+}
+
+// SetSubjectOptions configures subject mapping for this command (see
+// SubjectOptions).
+func (c *Grant) SetSubjectOptions(o SubjectOptions) {
+	c.sopts = o
 }

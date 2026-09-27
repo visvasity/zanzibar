@@ -10,24 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/visvasity/cli"
 	"github.com/visvasity/zanzibar"
 	"github.com/visvasity/zanzibar/schema"
 )
-
-// ConfigGroup returns the "config" command group for namespace-config
-// administration (it talks to the config-plane API), plus the local "compile"
-// converter.
-func ConfigGroup() cli.Command {
-	return cli.NewGroup("config", "Manage namespace configs",
-		new(ConfigWrite),
-		new(ConfigRead),
-		new(ConfigList),
-		new(ConfigReadVersion),
-		new(ConfigListVersions),
-		new(ConfigCompile),
-	)
-}
 
 // resolveFormat determines the input format from an explicit flag or, failing
 // that, the file extension (".acl"/".zml"/".dsl" → dsl; otherwise json).

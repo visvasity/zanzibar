@@ -14,6 +14,7 @@ import (
 // ListTuples prints stored relation tuples matching a filter.
 type ListTuples struct {
 	flags ClientFlags
+	sopts SubjectOptions
 
 	object    string
 	namespace string
@@ -41,6 +42,10 @@ func (c *ListTuples) run(ctx context.Context, args []string) error {
 	if len(args) != 0 {
 		return fmt.Errorf("command takes no positional arguments")
 	}
+	subject, err := c.sopts.mapInput(ctx, c.subject)
+	if err != nil {
+		return err
+	}
 	client, err := c.flags.Client()
 	if err != nil {
 		return err
@@ -52,7 +57,7 @@ func (c *ListTuples) run(ctx context.Context, args []string) error {
 			Object:    c.object,
 			Namespace: c.namespace,
 			Relation:  c.relation,
-			Subject:   c.subject,
+			Subject:   subject,
 			PageSize:  c.pageSize,
 			PageToken: token,
 		})
@@ -60,7 +65,11 @@ func (c *ListTuples) run(ctx context.Context, args []string) error {
 			return err
 		}
 		for _, r := range resp.Records {
-			fmt.Fprintf(out, "%s#%s@%s%s\n", r.Tuple.Object, r.Tuple.Relation, r.Tuple.Subject, intervalSuffix(r))
+			display, err := c.sopts.mapOutput(ctx, r.Tuple.Subject)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(out, "%s#%s@%s%s\n", r.Tuple.Object, r.Tuple.Relation, display, intervalSuffix(r))
 		}
 		if resp.NextPageToken == "" {
 			return nil
@@ -75,4 +84,10 @@ func intervalSuffix(r zanzibar.TupleRecord) string {
 		return ""
 	}
 	return fmt.Sprintf(" [not-before=%d not-after=%d]", r.NotBeforeUnixNano, r.NotAfterUnixNano)
+}
+
+// SetSubjectOptions configures subject mapping for this command (see
+// SubjectOptions).
+func (c *ListTuples) SetSubjectOptions(o SubjectOptions) {
+	c.sopts = o
 }

@@ -16,6 +16,7 @@ import (
 // Expand prints the userset tree for object#relation.
 type Expand struct {
 	flags ClientFlags
+	sopts SubjectOptions
 
 	asOf string
 }
@@ -47,11 +48,10 @@ func (c *Expand) run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	printNode(cli.Stdout(ctx), resp.Tree, 0)
-	return nil
+	return printNode(ctx, cli.Stdout(ctx), c.sopts, resp.Tree, 0)
 }
 
-func printNode(w io.Writer, n zanzibar.UsersetNode, depth int) {
+func printNode(ctx context.Context, w io.Writer, o SubjectOptions, n zanzibar.UsersetNode, depth int) error {
 	indent := strings.Repeat("  ", depth)
 	label := string(n.Kind)
 	if label == "" {
@@ -76,9 +76,22 @@ func printNode(w io.Writer, n zanzibar.UsersetNode, depth int) {
 	}
 	fmt.Fprintf(w, "%s- %s%s\n", indent, label, suffix)
 	for _, s := range n.Subjects {
-		fmt.Fprintf(w, "%s    %s\n", indent, s)
+		display, err := o.mapOutput(ctx, s)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "%s    %s\n", indent, display)
 	}
 	for _, child := range n.Children {
-		printNode(w, child, depth+1)
+		if err := printNode(ctx, w, o, child, depth+1); err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+// SetSubjectOptions configures subject mapping for this command (see
+// SubjectOptions).
+func (c *Expand) SetSubjectOptions(o SubjectOptions) {
+	c.sopts = o
 }

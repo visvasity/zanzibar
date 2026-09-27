@@ -44,12 +44,34 @@ func startServer(t *testing.T) (dataURL, configURL string) {
 	return ts.URL + "/authz/", ts.URL + "/cfg/"
 }
 
+// allCommands assembles the full ACL command set (mirroring aclcli's main).
+func allCommands() []cli.Command {
+	return []cli.Command{
+		new(aclcmds.Grant),
+		new(aclcmds.Revoke),
+		new(aclcmds.DeleteObject),
+		new(aclcmds.Check),
+		new(aclcmds.ListTuples),
+		new(aclcmds.Expand),
+		new(aclcmds.ListObjects),
+		new(aclcmds.ListUsers),
+		cli.NewGroup("config", "Manage namespace configs",
+			new(aclcmds.ConfigWrite),
+			new(aclcmds.ConfigRead),
+			new(aclcmds.ConfigList),
+			new(aclcmds.ConfigReadVersion),
+			new(aclcmds.ConfigListVersions),
+			new(aclcmds.ConfigCompile),
+		),
+	}
+}
+
 // run executes one CLI command, capturing stdout, and fails on error.
 func run(t *testing.T, args ...string) string {
 	t.Helper()
 	var buf bytes.Buffer
 	ctx := cli.WithStdout(context.Background(), &buf)
-	if err := cli.Run(ctx, aclcmds.Commands(), args); err != nil {
+	if err := cli.Run(ctx, allCommands(), args); err != nil {
 		t.Fatalf("run %v: %v", args, err)
 	}
 	return buf.String()
@@ -59,7 +81,7 @@ func run(t *testing.T, args ...string) string {
 func runErr(args ...string) error {
 	var buf bytes.Buffer
 	ctx := cli.WithStdout(context.Background(), &buf)
-	return cli.Run(ctx, aclcmds.Commands(), args)
+	return cli.Run(ctx, allCommands(), args)
 }
 
 func TestCLIEndToEnd(t *testing.T) {

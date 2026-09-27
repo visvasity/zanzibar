@@ -15,6 +15,7 @@ import (
 // relation.
 type ListObjects struct {
 	flags ClientFlags
+	sopts SubjectOptions
 
 	asOf     string
 	pageSize int
@@ -40,6 +41,10 @@ func (c *ListObjects) run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("invalid -as-of: %w", err)
 	}
+	subject, err := c.sopts.mapInput(ctx, args[2])
+	if err != nil {
+		return err
+	}
 	client, err := c.flags.Client()
 	if err != nil {
 		return err
@@ -48,7 +53,7 @@ func (c *ListObjects) run(ctx context.Context, args []string) error {
 	token := ""
 	for {
 		resp, err := client.ListObjects(ctx, &zanzibar.ListObjectsRequest{
-			Namespace: args[0], Relation: args[1], Subject: args[2],
+			Namespace: args[0], Relation: args[1], Subject: subject,
 			AsOfUnixNano: asOf, PageSize: c.pageSize, PageToken: token,
 		})
 		if err != nil {
@@ -62,4 +67,10 @@ func (c *ListObjects) run(ctx context.Context, args []string) error {
 		}
 		token = resp.NextPageToken
 	}
+}
+
+// SetSubjectOptions configures subject mapping for this command (see
+// SubjectOptions).
+func (c *ListObjects) SetSubjectOptions(o SubjectOptions) {
+	c.sopts = o
 }

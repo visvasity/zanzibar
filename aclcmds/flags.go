@@ -15,10 +15,23 @@
 // defines no transport flags of its own, to avoid colliding with application-level
 // flags.
 //
-// Mount them into an application's CLI, for example:
+// The package exposes each command as a type (Grant, Revoke, Check, ListTuples,
+// Expand, ListObjects, ListUsers, DeleteObject, and the Config* commands); the
+// application constructs and groups the ones it wants. For a complete example,
+// see the aclcli command, which assembles them all:
 //
-//	acl := cli.NewGroup("acl", "Zanzibar ACL operations", aclcmds.Commands()...)
+//	acl := cli.NewGroup("acl", "Zanzibar ACL operations",
+//	    new(aclcmds.Grant), new(aclcmds.Check), // ...
+//	    cli.NewGroup("config", "Manage namespace configs", new(aclcmds.ConfigWrite) /* ... */),
+//	)
 //	cli.Run(ctx, []cli.Command{ ..., acl }, os.Args[1:])
+//
+// Optionally, the commands can map human emails entered on the command line to
+// stable identity subjects (and back for display), so operators keep using
+// emails while the ACL stores identities. Populate a SubjectOptions with the
+// application's resolver, classifier, and formatter callbacks and apply it to
+// each command with its SetSubjectOptions method. The package stays free of any
+// account/identity knowledge; see SUBJECTS.md for the design.
 package aclcmds
 
 import (

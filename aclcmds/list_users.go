@@ -14,6 +14,7 @@ import (
 // ListUsers prints the user subjects that are members of object#relation.
 type ListUsers struct {
 	flags ClientFlags
+	sopts SubjectOptions
 
 	asOf     string
 	pageSize int
@@ -54,11 +55,21 @@ func (c *ListUsers) run(ctx context.Context, args []string) error {
 			return err
 		}
 		for _, u := range resp.Users {
-			fmt.Fprintln(out, u)
+			display, err := c.sopts.mapOutput(ctx, u)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(out, display)
 		}
 		if resp.NextPageToken == "" {
 			return nil
 		}
 		token = resp.NextPageToken
 	}
+}
+
+// SetSubjectOptions configures subject mapping for this command (see
+// SubjectOptions).
+func (c *ListUsers) SetSubjectOptions(o SubjectOptions) {
+	c.sopts = o
 }

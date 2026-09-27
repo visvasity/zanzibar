@@ -14,6 +14,7 @@ import (
 // Check reports whether a subject has a relation on an object.
 type Check struct {
 	flags ClientFlags
+	sopts SubjectOptions
 
 	asOf     string
 	exitCode bool
@@ -39,12 +40,16 @@ func (c *Check) run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("invalid -as-of: %w", err)
 	}
+	subject, err := c.sopts.mapInput(ctx, args[2])
+	if err != nil {
+		return err
+	}
 	client, err := c.flags.Client()
 	if err != nil {
 		return err
 	}
 	resp, err := client.Check(ctx, &zanzibar.CheckRequest{
-		Object: args[0], Relation: args[1], Subject: args[2], AsOfUnixNano: asOf,
+		Object: args[0], Relation: args[1], Subject: subject, AsOfUnixNano: asOf,
 	})
 	if err != nil {
 		return err
@@ -59,4 +64,10 @@ func (c *Check) run(ctx context.Context, args []string) error {
 		return fmt.Errorf("access denied")
 	}
 	return nil
+}
+
+// SetSubjectOptions configures subject mapping for this command (see
+// SubjectOptions).
+func (c *Check) SetSubjectOptions(o SubjectOptions) {
+	c.sopts = o
 }
