@@ -40,7 +40,7 @@ func mappedCommands() []cli.Command {
 	}
 	cmds := allCommands()
 	for _, c := range cmds {
-		if s, ok := c.(aclcmds.SubjectOptionsSetter); ok {
+		if s, ok := c.(interface{ SetSubjectOptions(aclcmds.SubjectOptions) }); ok {
 			s.SetSubjectOptions(opts)
 		}
 	}

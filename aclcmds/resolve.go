@@ -106,16 +106,3 @@ func userValue(s string) (string, bool) {
 	}
 	return "", false
 }
-
-// SubjectOptionsSetter is implemented by every command that maps user subjects
-// (all except delete-object and the config commands), so an application can
-// discover and configure them when iterating its command set:
-//
-//	for _, c := range cmds {
-//	    if s, ok := c.(aclcmds.SubjectOptionsSetter); ok {
-//	        s.SetSubjectOptions(opts)
-//	    }
-//	}
-type SubjectOptionsSetter interface {
-	SetSubjectOptions(SubjectOptions)
-}
