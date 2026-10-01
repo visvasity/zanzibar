@@ -35,12 +35,29 @@
 package aclcmds
 
 import (
-	"errors"
 	"flag"
+	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/visvasity/zanzibar"
 )
+
+// parseAPIURL parses a client base URL flag into an absolute *url.URL (scheme + host
+// required), for the zanzibar HTTP clients.
+func parseAPIURL(flagName, raw string) (*url.URL, error) {
+	if raw == "" {
+		return nil, fmt.Errorf("-%s is required", flagName)
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("-%s: %w", flagName, err)
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return nil, fmt.Errorf("-%s must be an absolute URL like https://host/api/authz", flagName)
+	}
+	return u, nil
+}
 
 // ClientFlags supplies the base URL of the zanzibar data-plane API
 // (zanzibar.Service.Handler) via the -acl-api-url flag.
@@ -55,10 +72,11 @@ func (v *ClientFlags) SetFlags(fset *flag.FlagSet) {
 
 // Client builds a data-plane client from the flags, using http.DefaultClient.
 func (v *ClientFlags) Client() (*zanzibar.Client, error) {
-	if v.url == "" {
-		return nil, errors.New("-acl-api-url is required")
+	u, err := parseAPIURL("acl-api-url", v.url)
+	if err != nil {
+		return nil, err
 	}
-	return zanzibar.NewClient(v.url, nil), nil
+	return zanzibar.NewClient(u, nil), nil
 }
 
 // ConfigClientFlags supplies the base URL of the zanzibar config-plane API
@@ -74,10 +92,11 @@ func (v *ConfigClientFlags) SetFlags(fset *flag.FlagSet) {
 
 // Client builds a config-plane client from the flags, using http.DefaultClient.
 func (v *ConfigClientFlags) Client() (*zanzibar.ConfigClient, error) {
-	if v.url == "" {
-		return nil, errors.New("-acl-config-api-url is required")
+	u, err := parseAPIURL("acl-config-api-url", v.url)
+	if err != nil {
+		return nil, err
 	}
-	return zanzibar.NewConfigClient(v.url, nil), nil
+	return zanzibar.NewConfigClient(u, nil), nil
 }
 
 // parseTime converts an optional RFC3339 timestamp into a Unix-nanosecond value,

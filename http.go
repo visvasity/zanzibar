@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"path"
 	"strings"
 )
 
@@ -226,15 +228,22 @@ func (s *Service) ConfigHandler() http.Handler {
 	return mux
 }
 
-func callPost[REQ, RESP any](ctx context.Context, baseURL string, httpClient *http.Client, path string, req *REQ) (*RESP, error) {
+// callPost POSTs req to the endpoint `suffix` under base. The full request URL is built
+// with path.Join, so the endpoint resolves correctly regardless of whether base's path
+// carries a trailing slash.
+func callPost[REQ, RESP any](ctx context.Context, base *url.URL, httpClient *http.Client, suffix string, req *REQ) (*RESP, error) {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
+	target := *base
+	target.Path = path.Join(base.Path, suffix)
+	endpoint := target.String()
+
 	var body bytes.Buffer
 	if err := gob.NewEncoder(&body).Encode(req); err != nil {
 		return nil, err
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+path, &body)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &body)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +257,7 @@ func callPost[REQ, RESP any](ctx context.Context, baseURL string, httpClient *ht
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("request to %s failed: %s: %s", path, resp.Status, strings.TrimSpace(string(msg)))
+		return nil, fmt.Errorf("request to %s failed: %s: %s", endpoint, resp.Status, strings.TrimSpace(string(msg)))
 	}
 
 	var env respEnvelope[RESP]
@@ -264,14 +273,15 @@ func callPost[REQ, RESP any](ctx context.Context, baseURL string, httpClient *ht
 // Client is a typed client for a Service data plane exposed via
 // [Service.Handler]. It reconstructs typed errors from the response envelope.
 type Client struct {
-	baseURL    string
+	baseURL    *url.URL
 	httpClient *http.Client
 }
 
-// NewClient returns a data-plane Client for a Service's [Service.Handler] mounted
-// at baseURL (for example "https://host/api/authz/"). baseURL should end with
-// "/". If httpClient is nil, http.DefaultClient is used.
-func NewClient(baseURL string, httpClient *http.Client) *Client {
+// NewClient returns a data-plane Client for a Service's [Service.Handler] mounted at
+// baseURL (for example a parse of "https://host/api/authz"). The endpoint paths are
+// resolved under baseURL with path.Join, so a trailing slash on baseURL is optional. If
+// httpClient is nil, http.DefaultClient is used.
+func NewClient(baseURL *url.URL, httpClient *http.Client) *Client {
 	return &Client{baseURL: baseURL, httpClient: httpClient}
 }
 
@@ -308,14 +318,15 @@ func (c *Client) ListUsers(ctx context.Context, req *ListUsersRequest) (*ListUse
 // ConfigClient is a typed client for a Service config plane exposed via
 // [Service.ConfigHandler].
 type ConfigClient struct {
-	baseURL    string
+	baseURL    *url.URL
 	httpClient *http.Client
 }
 
-// NewConfigClient returns a config-plane client for a Service's
-// [Service.ConfigHandler] mounted at baseURL. baseURL should end with "/". If
-// httpClient is nil, http.DefaultClient is used.
-func NewConfigClient(baseURL string, httpClient *http.Client) *ConfigClient {
+// NewConfigClient returns a config-plane client for a Service's [Service.ConfigHandler]
+// mounted at baseURL. The endpoint paths are resolved under baseURL with path.Join, so a
+// trailing slash on baseURL is optional. If httpClient is nil, http.DefaultClient is
+// used.
+func NewConfigClient(baseURL *url.URL, httpClient *http.Client) *ConfigClient {
 	return &ConfigClient{baseURL: baseURL, httpClient: httpClient}
 }
 

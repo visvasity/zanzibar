@@ -68,7 +68,7 @@ func TestSubjectMapping(t *testing.T) {
 	run(t, "config", "write", "-acl-config-api-url", configURL, "-file", cfgFile)
 
 	cmds := mappedCommands()
-	raw := zanzibar.NewClient(dataURL, nil)
+	raw := zanzibar.NewClient(mustURL(t, dataURL), nil)
 
 	// Grant with a human email: stored subject must be the resolved synthetic.
 	runM(t, cmds, "grant", "-acl-api-url", dataURL, "doc:readme", "owner", "user:alice@example.com")
@@ -123,7 +123,7 @@ func TestNoMappingByDefault(t *testing.T) {
 	run(t, "config", "write", "-acl-config-api-url", configURL, "-file", cfgFile)
 
 	run(t, "grant", "-acl-api-url", dataURL, "doc:readme", "owner", "user:alice@example.com")
-	raw := zanzibar.NewClient(dataURL, nil)
+	raw := zanzibar.NewClient(mustURL(t, dataURL), nil)
 	resp, err := raw.Read(ctx, &zanzibar.ReadRequest{Object: "doc:readme"})
 	if err != nil {
 		t.Fatal(err)
@@ -151,7 +151,7 @@ func TestResolverIgnoredWithoutClassifier(t *testing.T) {
 	})
 	runM(t, []cli.Command{g}, "grant", "-acl-api-url", dataURL, "doc:readme", "owner", "user:alice@example.com")
 
-	raw := zanzibar.NewClient(dataURL, nil)
+	raw := zanzibar.NewClient(mustURL(t, dataURL), nil)
 	resp, err := raw.Read(ctx, &zanzibar.ReadRequest{Object: "doc:readme"})
 	if err != nil {
 		t.Fatal(err)

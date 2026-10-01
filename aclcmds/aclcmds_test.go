@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,16 @@ import (
 	"github.com/visvasity/zanzibar"
 	"github.com/visvasity/zanzibar/aclcmds"
 )
+
+// mustURL parses raw or fails the test.
+func mustURL(t *testing.T, raw string) *url.URL {
+	t.Helper()
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parse %q: %v", raw, err)
+	}
+	return u
+}
 
 const docConfigJSON = `{
   "namespace": "doc",
@@ -147,7 +158,7 @@ func TestCLIEndToEnd(t *testing.T) {
 func TestCLIDeleteObject(t *testing.T) {
 	dataURL, configURL := startServer(t)
 	// Seed a config and a few tuples on one object, then delete the object.
-	cc := zanzibar.NewConfigClient(configURL, nil)
+	cc := zanzibar.NewConfigClient(mustURL(t, configURL), nil)
 	if _, err := cc.WriteConfig(context.Background(), &zanzibar.NamespaceConfig{
 		Namespace: "doc", Relations: map[string]zanzibar.Rewrite{
 			"owner":  {This: &zanzibar.This{}},

@@ -7,8 +7,19 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 )
+
+// mustURL parses raw or fails the test.
+func mustURL(t *testing.T, raw string) *url.URL {
+	t.Helper()
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parse %q: %v", raw, err)
+	}
+	return u
+}
 
 // startHTTP mounts a fresh Service's data and config handlers at disjoint
 // prefixes on a test HTTP server, returning typed clients for each.
@@ -22,7 +33,33 @@ func startHTTP(t *testing.T) (*Client, *ConfigClient) {
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
 
-	return NewClient(ts.URL+"/authz/", nil), NewConfigClient(ts.URL+"/cfg/", nil)
+	return NewClient(mustURL(t, ts.URL+"/authz/"), nil), NewConfigClient(mustURL(t, ts.URL+"/cfg/"), nil)
+}
+
+// TestHTTPBaseURLWithoutTrailingSlash verifies the clients tolerate a base URL given
+// without a trailing slash (the endpoint suffixes still join correctly).
+func TestHTTPBaseURLWithoutTrailingSlash(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	mux := http.NewServeMux()
+	mux.Handle("/authz/", http.StripPrefix("/authz", svc.Handler()))
+	mux.Handle("/cfg/", http.StripPrefix("/cfg", svc.ConfigHandler()))
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+
+	// Note: no trailing slash on either base URL path.
+	c := NewClient(mustURL(t, ts.URL+"/authz"), nil)
+	cc := NewConfigClient(mustURL(t, ts.URL+"/cfg"), nil)
+
+	if _, err := cc.WriteConfig(ctx, sampleDocConfig()); err != nil {
+		t.Fatalf("WriteConfig (no trailing slash): %v", err)
+	}
+	if _, err := c.Write(ctx, grantReq("doc:readme", "viewer", "user:alice@example.com")); err != nil {
+		t.Fatalf("Write (no trailing slash): %v", err)
+	}
+	if resp, err := c.Check(ctx, &CheckRequest{Object: "doc:readme", Relation: "viewer", Subject: "user:alice@example.com"}); err != nil || !resp.Allowed {
+		t.Errorf("Check (no trailing slash) = (%v, %v), want (Allowed true, nil)", resp, err)
+	}
 }
 
 func TestHTTPRoundTrip(t *testing.T) {
